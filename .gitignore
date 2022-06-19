@@ -14,6 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
+lib/
 lib64/
 parts/
 sdist/
@@ -131,13 +132,16 @@ dmypy.json
 
 #Mac file system
 .DS_Store
-.vscode
+
 
 #Python Cache
 #Data
 *.csv
 *.zip
-!Data/Spotify/spotify-albums-utf8-small.csv
-!Data/Spotify/spotify-artists-utf8-small.csv
-!Data/Spotify/spotify-tracks-utf8-small.csv
+!Data/GoodReads/books.csv
+!Data/GoodReads/book_reviews.csv
+!Data/books.csv
+!Data/category-id.csv
+!Data/videos-small.csv
+
 .vim
