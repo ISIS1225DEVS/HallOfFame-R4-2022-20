@@ -1,5 +1,5 @@
 # INTEGRANTES
-<!-- TODO agregar integrantes del grupo -->
-1. REQ_03 María Fernanda Monsalve.
-2. REQ_04 Laura Murcia.
-3. REQ_05 Mateo Rodríguez.
+
+* Req. 3 - María Fernanda Monsalve.
+* Req. 4 - Laura Murcia.
+* Req. 5 - Mateo Rodríguez.

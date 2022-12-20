@@ -1,6 +1,5 @@
-<!-- GROUP MEMBERS -->
-## Members
+# INTEGRANTES
 
-1. Student No. Catlina Munoz, Student No. 1 Uniandes Email, Student No. 1 owned functionality.
-1. Student No. 2 Name, Yaisa C. Ramirez 2 Uniandes Email, Student No. 2 owned functionality.
-1. Student No. 3 Name, Ana Maria Patron. 3 Uniandes Email, Student No. 3 owned functionality.
+* Req. 3 -  Catlina Munoz.
+* Req. 4 -  Yaisa C. Ramirez.
+* Req. 5 -  Ana Maria Patron.
