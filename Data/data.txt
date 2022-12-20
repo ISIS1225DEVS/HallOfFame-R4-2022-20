@@ -1,1 +1,6 @@
-﻿# TODO aqui va la carpeta con los el subconjunto -small del reto
+﻿Fuente original de datos:
+
+TMB’s strategy for an efficient bus network in Barcelona, by Dídac Pestaña, 2021, URL: https://www.intelligenttransport.com/transport-articles/4959/tmbs-strategy-for-an-efficient-bus-network-in-barcelona/ 
+What it is and the completed bus network, TMB URL: https://www.tmb.cat/en/about-tmb/transport-network-improvements/new-bus-network/evolution
+Discovering Barcelona Part II, URL: https://www.kaggle.com/code/xvivancos/discovering-barcelona-part-ii/data?select=bus_stops.csv
+Discovering Barcelona Part II, Introduction, URL https://www.kaggle.com/code/xvivancos/discovering-barcelona-part-ii#introduction. 

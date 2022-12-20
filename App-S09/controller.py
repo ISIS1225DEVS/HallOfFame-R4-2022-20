@@ -25,78 +25,133 @@ import model
 import csv
 import time
 
+
 """
 El controlador se encarga de mediar entre la vista y el modelo.
 """
 
 # Inicialización del Catálogo de libros
-def newController():
-    """
-    Crea una instancia del modelo
-    """
-    control = model.newAnalyzer('ARRAY_LIST')
-    return control
+
+def init():
+    analyzer = model.newAnalyzer()
+    return analyzer
 
 # Funciones para la carga de datos
-def loadData(analyzer, sizeFile):
-    contentFile = cf.data_dir + 'Barcelona//bus_stops_bcn-utf8-' + str(sizeFile) + '.csv'
-    inputFile = csv.DictReader(open(contentFile, encoding="utf-8"), delimiter=",")
-    for busStop in inputFile:
-        model.addBusStop(analyzer, busStop)
-    contentFile = cf.data_dir + 'Barcelona//bus_edges_bcn-utf8-' + str(sizeFile) + '.csv'
-    inputFile = csv.DictReader(open(contentFile, encoding="utf-8"), delimiter=",")
-    for busEdge in inputFile:
-        model.addBusEdge(analyzer, busEdge)
-    analyzer['generalInformation']['busStops'] = model.lt.size(analyzer['busStops'])
-    analyzer['generalInformation']['busEdges'] = model.lt.size(analyzer['busEdges'])
-    model.connectSharedStops(analyzer)
-    return
+
+def loadData(analyzer):
+    loadstops(analyzer)
+    loadrutas(analyzer)
+    model.addVertices(analyzer)
+    model.addEdges(analyzer)
+    model.addTransbordos(analyzer)
+    return analyzer
+
+def loadstops(analyzer):
+    servicesfile = cf.data_dir + "Challenge-4/Barcelona/bus_stops_bcn-utf8-large.csv"
+    input_file = csv.DictReader(open(servicesfile, encoding="utf-8"),
+                                delimiter=",")
+    for stop in input_file:
+        model.addStops(analyzer, stop)
+    return analyzer
+
+def loadrutas(analyzer):
+    servicesfile = cf.data_dir + "Challenge-4/Barcelona/bus_edges_bcn-utf8-large.csv"
+    input_file = csv.DictReader(open(servicesfile, encoding="utf-8"),
+                                delimiter=",")
+    for ruta in input_file:
+        model.addRutas(analyzer, ruta)
+    return analyzer
 
 # Funciones de ordenamiento
-def firstAndLastThreeData(lista):
-    return model.firstAndLastThreeData(lista)
-
-def firstAndLastFiveData(analyzer, lista, directed):
-    return model.firstAndLastFiveData(analyzer, lista, directed)
 
 # Funciones de consulta sobre el catálogo
-def findPathBetweenTwoStations(analyzer, stationA, stationB):
-    stationA = stationA.upper()
-    stationB = stationB.upper()
-    return model.findPathBetweenTwoStations(analyzer, stationA, stationB)
 
-def findShortestPath(analyzer, stationA, stationB):
-    stationA = stationA.upper()
-    stationB = stationB.upper()
-    return model.findShortestPath(analyzer, stationA, stationB)
+def getCargaDeDatos(analyzer):
+    sizeEE = model.getSizeEstacionesExclusivas(analyzer)
+    sizeT = model.getSizeTransbordos(analyzer)
+    sizeA = model.getSizeArcos(analyzer)
+    lonslats = model.getLonAndLatMinMax(analyzer)
+    model.grafoCargaDatos(analyzer)
+    return sizeEE, sizeT, sizeA, lonslats
 
-def identifyConnectedComponents(analyzer):
-    return model.identifyConnectedComponents(analyzer)
+#Req 1
 
-def findShortestPathBetweenGeographicPoints(analyzer, geolocationA, geolocationB):
-    return model.findShortestPathBetweenGeographicPoints(analyzer, geolocationA, geolocationB)
+def buscarCaminoPosible(analyzer, inicio, destino):
+    start_time = getTime()
+    a = model.buscarCaminoPosible(analyzer, inicio, destino)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return a
 
-def locateReachableStations(analyzer, station, numConnections):
-    station = station.upper()
-    return model.locateReachableStations(analyzer, station, numConnections)
+#Req 2
 
-def findShortestPathBetweenStationAndNeighborhood(analyzer, station, neighborhood):
-    station = station.upper()
-    neighborhood = neighborhood.title()
-    return model.findShortestPathBetweenStationAndNeighborhood(analyzer, station, neighborhood)
+def caminoMenosEstaciones(analyzer, inicio, destino):
+    start_time = getTime()
+    b = model.caminoMenosEstaciones(analyzer, inicio, destino)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return b
 
-def findCircularPath(analyzer, initialStation):
-    initialStation = initialStation.upper()
-    return model.findCircularPath(analyzer, initialStation)
+#Req 3
 
-# Funciones para medir tiempos de ejecucion
+def reconocerComponentesConectados(analyzer):
+    start_time = getTime()
+    c = model.reconocerComponentesConectados(analyzer)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return c
+
+#Req 4
+
+def estacionesMasCercanas(analyzer, coordenadasIniciales, coordenadasFinales):
+    start_time = getTime()
+    d = model.recorridoReq4(analyzer, coordenadasIniciales, coordenadasFinales)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return d
+
+#Req 5
+
+def estacionesAlcanzables(analyzer, estacionInicial, cota):
+    start_time = getTime()
+    e = model.estacionesAlcanzables(analyzer, estacionInicial, cota)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return e
+
+#Req 6
+
+def caminoEstacionVecindario(analyzer,estacionInicial, vecindario):
+    start_time = getTime()
+    f = model.caminoEstacionVecindario(analyzer,estacionInicial, vecindario)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return f
+
+#Req 7
+
+def recorridoCircular(analyzer, estacionInicial):
+    start_time = getTime()
+    g = model.rutaCircular(analyzer, estacionInicial)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return g
+
 def getTime():
     """
     devuelve el instante tiempo de procesamiento en milisegundos
     """
     return float(time.perf_counter()*1000)
 
-def deltaTime(end, start):
+
+def deltaTime(start, end):
     """
     devuelve la diferencia entre tiempos de procesamiento muestreados
     """
