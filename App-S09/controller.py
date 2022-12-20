@@ -24,75 +24,134 @@ import config as cf
 import model
 import csv
 import time
-from datetime import datetime
+
 
 """
 El controlador se encarga de mediar entre la vista y el modelo.
 """
 
 # Inicialización del Catálogo de libros
-def newController():
-    """
-    Crea una instancia del modelo
-    """
-    control = model.newAnalyzer('ARRAY_LIST')
-    return control
+
+def init():
+    analyzer = model.newAnalyzer()
+    return analyzer
 
 # Funciones para la carga de datos
-def loadData(analyzer, sizeFile):
-    contentFile = cf.data_dir + 'Speedruns//game_data_utf-8-' + str(sizeFile) + '.csv'
-    inputFile = csv.DictReader(open(contentFile, encoding="utf-8"), delimiter=",")
-    for game in inputFile:
-        model.addRegister(analyzer, game, 'game')
-    contentFile = cf.data_dir + 'Speedruns//category_data_utf-8-' + str(sizeFile) + '.csv'
-    inputFile = csv.DictReader(open(contentFile, encoding="utf-8"), delimiter=",")
-    for register in inputFile:
-        model.addRegister(analyzer, register, 'speedrun')
+
+def loadData(analyzer):
+    loadstops(analyzer)
+    loadrutas(analyzer)
+    model.addVertices(analyzer)
+    model.addEdges(analyzer)
+    model.addTransbordos(analyzer)
+    return analyzer
+
+def loadstops(analyzer):
+    servicesfile = cf.data_dir + "Challenge-4/Barcelona/bus_stops_bcn-utf8-large.csv"
+    input_file = csv.DictReader(open(servicesfile, encoding="utf-8"),
+                                delimiter=",")
+    for stop in input_file:
+        model.addStops(analyzer, stop)
+    return analyzer
+
+def loadrutas(analyzer):
+    servicesfile = cf.data_dir + "Challenge-4/Barcelona/bus_edges_bcn-utf8-large.csv"
+    input_file = csv.DictReader(open(servicesfile, encoding="utf-8"),
+                                delimiter=",")
+    for ruta in input_file:
+        model.addRutas(analyzer, ruta)
+    return analyzer
 
 # Funciones de ordenamiento
-def firstAndLastThreeData(lista):
-    return model.firstAndLastThreeData(lista)
 
 # Funciones de consulta sobre el catálogo
-def getGamesByPlatformInDate(analyzer, platform, initialDate, finalDate):
-    platform = platform.title()
-    initialDate = datetime.strptime(initialDate, '%Y-%m-%d')
-    finalDate = datetime.strptime(finalDate, '%Y-%m-%d')
-    return model.getGamesByPlatformInDate(analyzer, platform, initialDate, finalDate)
 
-def getRegistersByPlayer(analyzer, player):
-    player = player.title()
-    return model.getRegistersByPlayer(analyzer, player)
+def getCargaDeDatos(analyzer):
+    sizeEE = model.getSizeEstacionesExclusivas(analyzer)
+    sizeT = model.getSizeTransbordos(analyzer)
+    sizeA = model.getSizeArcos(analyzer)
+    lonslats = model.getLonAndLatMinMax(analyzer)
+    model.grafoCargaDatos(analyzer)
+    return sizeEE, sizeT, sizeA, lonslats
 
-def getFasterRecords(analyzer,lim_inf, lim_sup):
-    return model.getFasterRecords(analyzer,lim_inf, lim_sup)
+#Req 1
 
-def getRegistersByDates(analyzer, initialDate, finalDate):
-    initialDate = datetime.strptime(initialDate, '%Y-%m-%dT%H:%M:%SZ')
-    finalDate = datetime.strptime(finalDate, '%Y-%m-%dT%H:%M:%SZ')
-    return model.getRegistersByDates(analyzer, initialDate, finalDate)
+def buscarCaminoPosible(analyzer, inicio, destino):
+    start_time = getTime()
+    a = model.buscarCaminoPosible(analyzer, inicio, destino)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return a
 
-def getRegistersByRange(analyzer, minTime, maxTime):
-    return model.getRegistersByRange(analyzer, minTime, maxTime)
+#Req 2
 
-def histogramByReleaseYears(analyzer, initialYear, finalYear, feature, numberSegments, numberLevels):
-    return model.histogramByReleaseYears(analyzer, initialYear, finalYear, feature, numberSegments, numberLevels)
+def caminoMenosEstaciones(analyzer, inicio, destino):
+    start_time = getTime()
+    b = model.caminoMenosEstaciones(analyzer, inicio, destino)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return b
 
-def getTopNByProfitableVideogamesInPlatform(analyzer, platform, N):
-    platform = platform.title()
-    return model.getTopNByProfitableVideogamesInPlatform(analyzer, platform, N)
+#Req 3
 
-def graphAttempsByCountriesInRangeOfYears(analyzer, year, timeInf, timeSup):
-    return model.graphAttempsByCountriesInRangeOfYears(analyzer, year, timeInf, timeSup)
+def reconocerComponentesConectados(analyzer):
+    start_time = getTime()
+    c = model.reconocerComponentesConectados(analyzer)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return c
 
-# Funciones para medir tiempos de ejecucion
+#Req 4
+
+def estacionesMasCercanas(analyzer, coordenadasIniciales, coordenadasFinales):
+    start_time = getTime()
+    d = model.recorridoReq4(analyzer, coordenadasIniciales, coordenadasFinales)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return d
+
+#Req 5
+
+def estacionesAlcanzables(analyzer, estacionInicial, cota):
+    start_time = getTime()
+    e = model.estacionesAlcanzables(analyzer, estacionInicial, cota)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return e
+
+#Req 6
+
+def caminoEstacionVecindario(analyzer,estacionInicial, vecindario):
+    start_time = getTime()
+    f = model.caminoEstacionVecindario(analyzer,estacionInicial, vecindario)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return f
+
+#Req 7
+
+def recorridoCircular(analyzer, estacionInicial):
+    start_time = getTime()
+    g = model.rutaCircular(analyzer, estacionInicial)
+    end_time = getTime()
+    delta_time = deltaTime(start_time, end_time)
+    print("El tiempo total del requerimiento es de: " + str(delta_time))
+    return g
+
 def getTime():
     """
     devuelve el instante tiempo de procesamiento en milisegundos
     """
     return float(time.perf_counter()*1000)
 
-def deltaTime(end, start):
+
+def deltaTime(start, end):
     """
     devuelve la diferencia entre tiempos de procesamiento muestreados
     """

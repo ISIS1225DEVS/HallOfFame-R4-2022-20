@@ -26,621 +26,774 @@
 
 
 import config as cf
-import csv
-import re
-import math
+from DISClib.ADT import list as lt
 import folium
 from folium.plugins import MarkerCluster
-from DISClib.ADT import list as lt
-from DISClib.ADT import orderedmap as om
+import haversine as hv
 from DISClib.ADT import map as mp
 from DISClib.DataStructures import mapentry as me
+from DISClib.ADT import graph as gr
+from DISClib.Algorithms.Graphs import dijsktra as dj
+from DISClib.Algorithms.Graphs import scc 
+from DISClib.Algorithms.Graphs import dfs 
+from DISClib.Algorithms.Graphs import bfs
+from DISClib.Algorithms.Graphs import cycles as cy
 from DISClib.Algorithms.Sorting import shellsort as sa
-from datetime import datetime
-from statistics import mean
+from DISClib.ADT import minpq as mpq
 assert cf
 
 """
 Se define la estructura de un catálogo de videos. El catálogo tendrá dos listas, una para los videos, otra para las categorias de
 los mismos.
 """
+def newAnalyzer():
+    analyzer = {"stops":None,
+                "rutas":None,
+                "grafo":None
+                }
+    analyzer["stops"] = mp.newMap(9300, maptype="PROBING", loadfactor=0.5)
+    analyzer["rutas"] = lt.newList("SINGLE_LINKED")
+    analyzer["grafo"] = gr.newGraph(datastructure="ADJ_LIST", directed=True, size=15000)
+    return analyzer
 
 # Construccion de modelos
-def newAnalyzer(structure):
-    analyzer = {}
-    analyzer['generalInformation'] = {}
-    analyzer['videoGames'] = lt.newList(structure)
-    analyzer['speedrunRecords'] = lt.newList(structure)
-    analyzer['idVideoGames'] = mp.newMap(1100, maptype='PROBING')
-    analyzer['releaseDates'] = om.newMap()
-    analyzer['bestPlayers'] = mp.newMap(9500, maptype='PROBING')
-    analyzer['Num_Runs'] = om.newMap()
-    analyzer['recordDates'] = om.newMap()
-    analyzer['Time_0'] = om.newMap(omaptype="RBT", comparefunction=compareTimes)
-    analyzer['releaseYears'] = om.newMap()
-    analyzer['platforms'] = mp.newMap(150, maptype='PROBING')
-    return analyzer
 
 # Funciones para agregar informacion al catalogo
-def addRegister(analyzer, register, type):
-    if type == 'game':
-        register = updateGeneralInformation(analyzer, register, 'game')
-        addIdVideoGames(analyzer, register)
-        addReleaseDate(analyzer, register)
-        lt.addLast(analyzer['videoGames'], register)
-    else:
-        register = conectGamesId(analyzer, register)
-        register = updateGeneralInformation(analyzer, register, 'speedrun')
-        addBestPlayer(analyzer, register)
-        addRecordDate(analyzer, register)
-        addReleaseYear(analyzer, register)
-        addAttempsByGame(analyzer, register)
-        addTime0(analyzer, register)
-        addPlatforms(analyzer, register, revenue=True)
-        lt.addLast(analyzer['speedrunRecords'], register)
-    return analyzer
 
-def updateGeneralInformation(analyzer, register, type):
-    if type == 'game':
-        platforms = register['Platforms'].split(', ')
-        for platform in platforms:
-            platform = platform.title()
-            countPlatform = analyzer['generalInformation'].get(platform, 0)
-            analyzer['generalInformation'][platform] = countPlatform + 1
-        date = register['Release_Date']
-        if date == '':
-            date = 'Unknown'
-        else:
-            date = datetime.strptime(date, '%y-%m-%d')
-            date = date.strftime("%Y-%m-%d")
-        register['Release_Date'] = date
-    else:
-        date = register['Record_Date_0']
-        if date == '':
-            date = 'Unknown'
-        else:
-            date = datetime.strptime(date, '%Y-%m-%dT%H:%M:%SZ')
-        register['Record_Date_0'] = date
-    return register
+def addRutas(analyzer, ruta):
+    rutas = analyzer["rutas"]
+    lt.addLast(rutas, ruta)
 
-def conectGamesId(analyzer, register):
-    GameId = register['Game_Id']
-    entry = mp.get(analyzer['idVideoGames'], GameId)
-    if entry:
-        videoGame = me.getValue(entry)
-        register['Name'] = videoGame['Name']
-        register['Platforms'] = videoGame['Platforms']
-        register['Genres'] = videoGame['Genres']
-        register['Release_Date'] = videoGame['Release_Date']
-        register['Total_Runs'] = videoGame['Total_Runs']
-    return register
+def addStops(analyzer, stop):
+    stops = analyzer["stops"]
+    nombre = str(stop["Code"])+"-"+str(stop["Bus_Stop"][6:])
+    mp.put(stops, nombre, stop)
 
-def addIdVideoGames(analyzer, register):
-    GameId = register['Game_Id']
-    entry = mp.get(analyzer['idVideoGames'], GameId)
-    if entry is None:
-        mp.put(analyzer['idVideoGames'], GameId, register)
+def addVertices(analyzer):
+    grafo = analyzer["grafo"]
+    stops = analyzer["stops"]
+    for llave in lt.iterator(mp.keySet(stops)):
+        entry = mp.get(stops, llave)
+        lat = float(me.getValue(entry)["Latitude"])
+        lon = float(me.getValue(entry)["Longitude"])
+        containsllave = gr.containsVertex(grafo, llave)
+        if containsllave == False:
+            gr.insertVertex(grafo, llave)
+    
 
-def addReleaseDate(analyzer, register):
-    releaseDate = register['Release_Date']
-    if releaseDate != 'Unknown':
-        releaseDate = datetime.strptime(releaseDate, "%Y-%m-%d")
-        entry = om.get(analyzer['releaseDates'], releaseDate)
-        if entry is None:
-            date = newReleaseDate(releaseDate)
-            om.put(analyzer['releaseDates'], releaseDate, date)
-        else:
-            date = me.getValue(entry)
-        addPlatforms(date, register)
+def addEdges(analyzer):
+    grafo = analyzer["grafo"]
+    rutas = analyzer["rutas"]
+    for ruta in lt.iterator(rutas):
+        code = ruta["Code"]
+        parada = ruta["Bus_Stop"]
+        destino = ruta["Code_Destiny"]
+        vertice1 = str(code)+str(parada[3:])
+        vertice2 = str(destino)+str(parada[3:])
+        lat1, lon1 = lonAndLat(analyzer, vertice1)
+        lat2, lon2 = lonAndLat(analyzer, vertice2)
+        distancia = hv.haversine((lat1, lon1), (lat2, lon2))
+        containsedge = gr.getEdge(grafo, vertice1, vertice2)
+        if containsedge is None:
+            gr.addEdge(grafo, vertice1, vertice2, distancia)
 
-def addBestPlayer(analyzer, register):
-    players = re.split(',|, ', register['Players_0'])
-    for player in players:
-        entry = mp.get(analyzer['bestPlayers'], player)
-        if entry is None:
-            bestPlayer = newBestPlayer(player)
-            mp.put(analyzer['bestPlayers'], player, bestPlayer)
-        else:
-            bestPlayer = me.getValue(entry)
-        lt.addLast(bestPlayer['registers'], register)
-        bestPlayer['generalInformation']['attemps'] += int(register['Num_Runs'])
-
-def addAttempsByGame(analyzer, register):
-    attemps = int(register['Num_Runs'])
-    entry = om.get(analyzer['Num_Runs'], attemps)
-    if entry is None:
-        AttempsByGame = newFasterRecord(attemps)
-        om.put(analyzer['Num_Runs'], attemps, AttempsByGame)
-    else:
-        AttempsByGame = me.getValue(entry)
-    lt.addLast(AttempsByGame['registers'], register)
-
-def addRecordDate(analyzer, register):
-    date = register['Record_Date_0']
-    if date != 'Unknown':
-        entry = om.get(analyzer['recordDates'], date)
-        if entry is None:
-            recordDate = newRecordDate(date)
-            om.put(analyzer['recordDates'], date, recordDate)
-        else:
-            recordDate = me.getValue(entry)
-        lt.addLast(recordDate['registers'], register)
-
-def addTime0(analyzer, register):
-    time0 = float(register['Time_0'])
-    entry = om.get(analyzer['Time_0'], time0)
-    if entry is None:
-        categorias = lt.newList()
-        lt.addLast(categorias, register)
-        om.put(analyzer['Time_0'], time0, categorias)
-    else:
-        pre = om.get(analyzer['Time_0'], time0)
-        categorias_2 = me.getValue(pre)
-        lt.addLast(categorias_2, register)
-        om.put(analyzer['Time_0'], time0, categorias_2)
-
-def addReleaseYear(analyzer, register):
-    rYear = register['Release_Date']
-    if rYear != 'Unknown':
-        rYear = datetime.strptime(rYear, "%Y-%m-%d").year
-        entry = om.get(analyzer['releaseYears'], rYear)
-        if entry is None:
-            releaseYear = newReleaseYear(rYear)
-            om.put(analyzer['releaseYears'], rYear, releaseYear)
-        else:
-            releaseYear = me.getValue(entry)
-        lt.addLast(releaseYear['registers'], register)
-        addCountries(releaseYear, register)
-
-def addPlatforms(analyzer, register, revenue=False):
-    if revenue:
-        register = calculateRevenue(register)
-    if register is not None:
-        platforms = register['Platforms'].split(', ')
-        for platformName in platforms:
-            platformName = platformName.title()
-            entry = mp.get(analyzer['platforms'], platformName)
-            if entry is None:
-                platform = newPlatform(platformName)
-                mp.put(analyzer['platforms'], platformName, platform)
+def addTransbordos(analyzer):
+    stops = analyzer["stops"]
+    grafo = analyzer["grafo"]
+    for llave in lt.iterator(mp.keySet(stops)):
+        entry = mp.get(stops, llave)
+        transbordo = me.getValue(entry)["Transbordo"]
+        nombre = "T-"+str(me.getValue(entry)["Code"])
+        lat = float(me.getValue(entry)["Latitude"])
+        lon = float(me.getValue(entry)["Longitude"])
+        if transbordo == "S":
+            if gr.containsVertex(grafo, nombre) == False:
+                gr.insertVertex(grafo, nombre)
+                gr.addEdge(grafo, nombre, llave, 0)
+                gr.addEdge(grafo, llave, nombre, 0)
             else:
-                platform = me.getValue(entry)
-            lt.addLast(platform['registers'], register)
-            if revenue:
-                addRecordsByGame(platform, register)
+                gr.addEdge(grafo, nombre, llave, 0)
+                gr.addEdge(grafo, llave, nombre, 0)
+        
 
-def addRecordsByGame(analyzer, register):
-    gameId = register['Game_Id']
-    entry = mp.get(analyzer['records'], gameId)
-    if entry is None:
-        game = newGame(gameId)
-        mp.put(analyzer['records'], gameId, game)
-    else:
-        game = me.getValue(entry)
-    lt.addLast(game['registers'], register)
-
-def addCountries(analyzer, register):
-    countryNames = re.split(',|, ', register['Country_0'])
-    for countryName in countryNames:
-        entry = mp.get(analyzer['countries'], countryName)
-        if entry is None:
-            country = newCountry(countryName)
-            mp.put(analyzer['countries'], countryName, country)
-        else:
-            country = me.getValue(entry)
-        addBestTimes(country, register)
-
-def addBestTimes(analyzer, register):
-    time = float(register['Time_0'])
-    entry = om.get(analyzer['bestTimes'], time)
-    if entry is None:
-        bestTime = newBestTime(time)
-        om.put(analyzer['bestTimes'], time, bestTime)
-    else:
-        bestTime = me.getValue(entry)
-    lt.addLast(bestTime['registers'], register)
+def grafoCargaDatos(analyzer):
+    mapa = folium.Map(location=[41.3887900, 2.1589900], zoom_start=20)
+    stops = analyzer["stops"]
+    rutas = analyzer["rutas"]
+    coordenadas = []
+    codigos = lt.newList("SINGLE_LINKED")
+    for llave in lt.iterator(mp.keySet(stops)):
+        entry = mp.get(stops, llave)
+        codigo = me.getValue(entry)["Code"]
+        if lt.isPresent(codigos, codigo) == 0:
+            lt.addLast(codigos, codigo)
+            lon = float(me.getValue(entry)["Longitude"])
+            lat = float(me.getValue(entry)["Latitude"])
+            coordenadas.append([lat, lon])
+            folium.Marker(location=[lat, lon],icon=folium.Icon(color="green",prefix="fa", icon="bus"), popup=llave).add_to(mapa)
+    for ruta in lt.iterator(rutas):
+        identificador1 = str(ruta["Code"]) + str(ruta["Bus_Stop"][3:])
+        identificador2 = str(ruta["Code_Destiny"]) + str(ruta["Bus_Stop"][3:])
+        entry1 =mp.get(stops, identificador1)
+        entry2 = mp.get(stops, identificador2)
+        coordenadas1 = [float(me.getValue(entry1)["Latitude"]), float(me.getValue(entry1)["Longitude"])]
+        coordenadas2 = [float(me.getValue(entry2)["Latitude"]), float(me.getValue(entry2)["Longitude"])]
+        folium.PolyLine([coordenadas1, coordenadas2], color="blue", dash_array="5", opacity=".85").add_to(mapa)
+    mapa.save("C:\\Users\\olive\\OneDrive\\Escritorio\\mapa.html")
 
 # Funciones para creacion de datos
-def newReleaseDate(releaseDate):
-    date = {}
-    date['releaseDate'] = releaseDate
-    date['platforms'] = mp.newMap(150, maptype='PROBING')
-    return date
-
-def newBestPlayer(player):
-    bestPlayer = {}
-    bestPlayer['player'] = player
-    bestPlayer['registers'] = lt.newList()
-    bestPlayer['generalInformation'] = {'attemps': 0}
-    return bestPlayer
-
-def newFasterRecord(attemp):
-    FasterRecord = {}
-    FasterRecord['attemp'] = attemp
-    FasterRecord['registers'] = lt.newList()
-    return FasterRecord
-
-def newRecordDate(date):
-    recordDate = {}
-    recordDate['date'] = date
-    recordDate['registers'] = lt.newList()
-    return recordDate
-
-def newBestTime(time):
-    bestTime = {}
-    bestTime['time'] = time
-    bestTime['registers'] = lt.newList()
-    return bestTime
-
-def newCountry(countryName):
-    country = {}
-    country['country'] = countryName
-    country['bestTimes'] = om.newMap()
-    return country
-
-def newReleaseYear(year):
-    releaseYear = {}
-    releaseYear['year'] = year
-    releaseYear['registers'] = lt.newList()
-    releaseYear['countries'] = mp.newMap(maptype='PROBING')
-    return releaseYear
-
-def newPlatform(platformName):
-    platform = {}
-    platform['platform'] = platformName
-    platform['registers'] = lt.newList()
-    platform['records'] = mp.newMap()
-    return platform
-
-def newGame(gameName):
-    game = {}
-    game['game'] = gameName
-    game['registers'] = lt.newList()
-    return game
 
 # Funciones de consulta
-def getGamesByPlatformInDate(analyzer, platform, initialDate, finalDate):
-    filtered = lt.newList()
-    details = {'gamesByPlatform': analyzer['generalInformation'].get(platform, 0), 'gamesInRange': 0}
-    releaseDates = om.keys(analyzer['releaseDates'], initialDate, finalDate)
-    for releaseDate in lt.iterator(releaseDates):
-        entry = om.get(analyzer['releaseDates'], releaseDate)
-        platforms = me.getValue(entry)['platforms']
-        gamesByPlatform = mp.get(platforms, platform)
-        if gamesByPlatform:
-            games = me.getValue(gamesByPlatform)['registers']
-            sortRegisters(games, compareReq1)
-            date = {'Release_Date': releaseDate.strftime("%Y-%m-%d"), 'Details': games, 'Count': lt.size(games)}
-            details['gamesInRange'] += lt.size(games)
-            lt.addLast(filtered, date)
-    sortRegisters(filtered, compareReleaseDate)
-    return filtered, details
 
-def getRegistersByPlayer(analyzer, player):
-    filtered = lt.newList()
-    details = {'attempsByPlayer': 0}
-    entry = mp.get(analyzer['bestPlayers'], player)
-    if entry:
-        player = me.getValue(entry)
-        filtered = player['registers']
-        details['attempsByPlayer'] = player['generalInformation']['attemps']
-    sortRegisters(filtered, compareReq2)
-    filteredData = lt.newList()
-    if lt.size(filtered) <= 5:
-        filteredData = filtered
-    else:
-        for i in range(1, 6):
-            register = lt.removeFirst(filtered)
-            register['Rank'] = i
-            lt.addLast(filteredData, register)
-    return filteredData, details
+def getSizeEstacionesExclusivas(analyzer):
+    stops = analyzer["stops"]
+    contador = 0
+    for llave in lt.iterator(mp.keySet(stops)):
+        entry = mp.get(stops, llave)
+        valor = me.getValue(entry)
+        transbordo = valor["Transbordo"]
+        if transbordo == "N":
+            contador+= 1
+    return contador
 
-def getFasterRecords(analyzer,lim_inf, lim_sup):
-    filtered = lt.newList()
-    details = {'Total_attemps': 0}
-    attemps = om.keys(analyzer['Num_Runs'], lim_inf,lim_sup)
-    for attemp in lt.iterator(attemps):
-        entry= om.get(analyzer['Num_Runs'], attemp)
-        registers = me.getValue(entry)['registers']
-        sortRegisters(firstAndLastThreeData(registers), compareReq3)
-        data = {'Num_Runs': attemp, 'Count': lt.size(registers), 'Details': registers}
-        details['Total_attemps']+= lt.size(registers)
-        lt.addLast(filtered, data)
-    return filtered, details
+def getSizeTransbordos(analyzer):
+    grafo = analyzer["grafo"]
+    contador = 0
+    for identificador in lt.iterator(gr.vertices(grafo)):
+        if identificador[0] == "T":
+            contador += 1
+    return contador
 
-def getRegistersByDates(analyzer, initialDate, finalDate):
-    filered = lt.newList()
-    dates = om.keys(analyzer['recordDates'], initialDate, finalDate)
-    details = {'totalRecords': lt.size(dates)}
-    dates = firstAndLastThreeData(dates)
-    for date in lt.iterator(dates):
-        entry = om.get(analyzer['recordDates'], date)
-        registers = me.getValue(entry)['registers']
-        sortRegisters(registers, compareReq4)
-        recordDate = {'Record_Date_0': date, 'Details': registers, 'Count': lt.size(registers)}
-        lt.addLast(filered, recordDate)
-    sortRegisters(filered, compareBestRecordDate)
-    return filered, details
+def getSizeArcos(analyzer):
+    grafo = analyzer["grafo"]
+    arcos = gr.edges(grafo)
+    return lt.size(arcos)
 
-def getRegistersByRange(analyzer, minTime, maxTime):
-    filtered = lt.newList()
-    details = {'No. Records': 0}
-    times = om.keys(analyzer["Time_0"], minTime, maxTime)
-    details["Number of elements"] = lt.size(times)
-    details["Times"] = lt.newList()
-    details["Number of records"] = 0
-    for time in lt.iterator(times):
-        values = om.get(analyzer["Time_0"], time)
-        entries = me.getValue(values)
-        lt.addLast(details["Times"], {"Tiempo": time, "Count" : lt.size(entries)})
-        time_0 = {'Time_0': time, 'Details': entries, 'Count': lt.size(entries)}
-        details['No. Records'] += lt.size(entries)
-        lt.addLast(filtered, time_0)
-        details["Number of records"] += 1
-    return filtered, details
+def getLonAndLatMinMax(analyzer):
+    stops = analyzer["stops"]
+    lons = []
+    lats = []
+    for llave in lt.iterator(mp.keySet(stops)):
+        entry = mp.get(stops, llave)
+        valor = me.getValue(entry)
+        lon = valor["Longitude"]
+        lat = valor["Latitude"]
+        lons.append(float(lon))
+        lats.append(float(lat))
+    lonMin = min(lons)
+    lonMax = max(lons)
+    latMin = min(lats)
+    latMax = max(lats)
+    return lonMin, lonMax, latMin, latMax
 
-def histogramByReleaseYears(analyzer, initialYear, finalYear, feature, numberSegments, numberLevels):
-    filtered = lt.newList()
-    details = {'consultedAttemps': 0, 'includedRegisters': 0}
-    counts = []
-    years = om.keys(analyzer['releaseYears'], initialYear, finalYear)
-    for year in lt.iterator(years):
-        entry = om.get(analyzer['releaseYears'], year)
-        registers = me.getValue(entry)['registers']
-        for register in lt.iterator(registers):
-            details['consultedAttemps'] += 1
-            item = determinateItem(register, feature)
-            if item is not None:
-                details['includedRegisters'] += 1
-                highest = details.get('highest', item)
-                lowest = details.get('lowest', item)
-                if item > highest:
-                    highest = item
-                details['highest'] = highest
-                if item < lowest:
-                    lowest = item
-                details['lowest'] = lowest
-                counts.append(item)
-    createPocketForHistogram(filtered, details, counts, numberSegments, numberLevels)
-    return filtered, details
+def lonAndLat(analyzer, vertice):
+    stops = analyzer["stops"]
+    entry = mp.get(stops, vertice)
+    lat = me.getValue(entry)["Latitude"]
+    lon = me.getValue(entry)["Longitude"]
+    return float(lat), float(lon)
 
-def getTopNByProfitableVideogamesInPlatform(analyzer, platform, N):
-    filtered = lt.newList()
-    details = {'gamesByPlatform': analyzer['generalInformation'].get(platform, 0), 'registersInRange': 0}
-    entry = mp.get(analyzer['platforms'], platform)
-    if entry:
-        node = me.getValue(entry)
-        totalRegisters = lt.size(node['registers'])
-        details['registersInRange'] = totalRegisters
-        records = node['records']
-        games = mp.keySet(records)
-        for gameId in lt.iterator(games):
-            entryGame = mp.get(records, gameId)
-            registers = me.getValue(entryGame)['registers']
-            game = getGame(analyzer, gameId)
-            game['Market_Share'] = lt.size(registers) / totalRegisters
-            for register in lt.iterator(registers):
-                game['Stream_Revenue'] += (register['revenue'] * game['Market_Share'])
-                game['Time_Avg'].append(register['Time_Avg'])
-            game['Time_Avg'] = round(mean(game['Time_Avg']), 2)
-            game['Market_Share'] = round(game['Market_Share'], 2)
-            game['Stream_Revenue'] = round(game['Stream_Revenue'], 2)
-            lt.addLast(filtered, game)
-    sortRegisters(filtered, compareRevenue)
-    topN = lt.newList()
-    if N > lt.size(filtered):
-        N = lt.size(filtered)
-    for i in range(1, N+1):
-        register = lt.removeFirst(filtered)
-        register['Rank'] = i
-        lt.addLast(topN, register)
-    return topN, details
+#Req 1
 
-def graphAttempsByCountriesInRangeOfYears(analyzer, year, timeInf, timeSup):
-    filtered = lt.newList()
-    details = {'registersInRange': 0, 'Map': None}
-    entry = om.get(analyzer['releaseYears'], year)
-    if entry:
-        map = folium.Map(location=[0,0], zoom_start=2)
-        mark = MarkerCluster()
-        coordinates = loadCoordinates()
-        countries = me.getValue(entry)['countries']
-        for countryName in lt.iterator(mp.keySet(countries)):
-            if countryName in coordinates.keys():
-                coordinatesCountry = coordinates[countryName]
-                country = {'Country': countryName, 'Count': 0, 'Details': lt.newList(), 'Coordinates': [float(coordinatesCountry['Latitude']), float(coordinatesCountry['Longitude'])]}
-                entryCountry = mp.get(countries, countryName)
-                bestTimes = me.getValue(entryCountry)['bestTimes']
-                for bestTime in lt.iterator(om.keys(bestTimes, timeInf, timeSup)):
-                    entryBestTime = om.get(bestTimes, bestTime)
-                    registers = me.getValue(entryBestTime)['registers']
-                    country['Count'] += lt.size(registers)
-                    details['registersInRange'] += lt.size(registers)
-                    for register in lt.iterator(registers):
-                        lt.addLast(country['Details'], register)
-                        mark.add_child(folium.Marker(location=country['Coordinates'], popup='Time_0: {0}\nPlayers_0: {1}\nName: {2}\nRelease_Date: {3}\nCountry: {4}'.format(register['Time_0'], register['Players_0'], register['Name'], register['Release_Date'], register['Country_0'])))
-                if country['Count'] > 0:
-                    lt.addLast(filtered, country)
-        map.add_child(mark)
-        map.save('Map.html')
-        details['Map'] = True
-    sortRegisters(filtered, compareCounts)
-    return filtered, details
+def buscarCaminoPosible(analyzer, inicio, destino):
+    mapa = folium.Map(location=[41.3887900, 2.1589900], zoom_start=50)
+    grafo = analyzer["grafo"]
+    map = analyzer["stops"]
+    transbordos = 0
+    estaciones = lt.newList("SINGLE_LINKED")
+    estacionesTotales = lt.newList("SINGLE_LINKED")
+    search = dj.Dijkstra(grafo, inicio)
+    caminoexiste = dj.hasPathTo(search, destino)
+    if caminoexiste:
+        distancia = dj.distTo(search, destino)
+        vertices = dj.pathTo(search, destino)
+        for vertice in lt.iterator(vertices):
+            grafoReq1(analyzer, vertice, mapa)
+            vertexA = vertice["vertexA"]
+            vertexB = vertice["vertexB"]
+            if vertexA[0] == "T":
+                transbordos += 1
+            if vertexB[0] == "T":
+                transbordos += 1
+            entry = mp.get(map, vertexA)
+            if entry is not None:
+                codigo = me.getValue(entry)["Code"]
+                if lt.isPresent(estaciones, codigo) == 0:
+                    lt.addLast(estaciones, codigo)
+            entry = mp.get(map, vertexB)
+            if entry is not None:
+                codigo = me.getValue(entry)["Code"]
+                if lt.isPresent(estaciones, codigo) == 0:
+                    lt.addLast(estaciones, codigo) 
+    mapa.save("C:\\Users\\olive\\OneDrive\\Escritorio\\mapaReq1.html")           
+    return distancia, lt.size(estaciones), transbordos/2, vertices
 
-# Funciones de soporte para las consultas
-def createPocketForHistogram(filtered, details, counts, numberSegments, numberLevels):
-    if (len(details) > 2) and (numberSegments > 0) and (numberLevels > 0):
-        period = (details['highest'] - details['lowest']) / numberSegments
-        lastRangeA = details['lowest']
-        for number in range(1, numberSegments + 1):
-            data = {}
-            lastRangeB = round(((period * number) + details['lowest']), 2)
-            count = 0
-            for item in counts:
-                if (item + 0.01 > lastRangeA) and (item <= lastRangeB):
-                    count += 1
-            data['bin'] = '({0}, {1}]'.format(lastRangeA, lastRangeB)
-            data['count'] = count
-            data['lvl'] = count // numberLevels
-            if data['lvl'] == 0:
-                data['mark'] = ' '
+def grafoReq1(analyzer, vertice, mapa):
+    stops = analyzer["stops"]
+    verticeA = vertice["vertexA"]
+    verticeB = vertice["vertexB"]
+    entryA = mp.get(stops, verticeA)
+    entryB = mp.get(stops, verticeB)
+    if entryA is not None:
+        lon = me.getValue(entryA)["Longitude"]
+        lat = me.getValue(entryA)["Latitude"]
+        marker_cluster = MarkerCluster().add_to(mapa)
+        folium.Marker(location=[lat, lon],icon=folium.Icon(color="green", icon="ok-sign"),).add_to(marker_cluster)
+        if entryB is not None:
+            latB = me.getValue(entryB)["Latitude"]
+            lonB = me.getValue(entryB)["Longitude"]
+            coordenadas1 = [float(lat), float(lon)]
+            coordenadas2 = [float(latB), float(lonB)]
+            folium.PolyLine([coordenadas1, coordenadas2], color="blue", dash_array="5", opacity=".85").add_to(mapa)
+
+#Req2
+
+def caminoMenosEstaciones(analyzer, inicio, destino):
+    mapa = folium.Map(location=[41.3887900, 2.1589900], zoom_start=20)
+    grafo = analyzer["grafo"]
+    stops = analyzer["stops"]
+    contador_transbordos = 0
+    buses = lt.newList("SINGLE_LINKED")
+    estaciones = lt.newList("SINGLE_LINKED")
+    search = bfs.BreadhtFisrtSearch(grafo, inicio)
+    existpath = bfs.hasPathTo(search, destino)
+    if existpath:
+        path = bfs.pathTo(search, destino)
+        for identificador in lt.iterator(path):
+            entry = mp.get(stops, identificador)
+            if entry is not None:
+                valor = me.getValue(entry)
+                bus_stop = valor["Bus_Stop"]
+                if lt.isPresent(buses, bus_stop) == 0:
+                    lt.addLast(buses, bus_stop)
+                    lt.addLast(estaciones, identificador)
             else:
-                data['mark'] = '*' * data['lvl']
-            lastRangeA = lastRangeB
-            lt.addLast(filtered, data)
+                lt.addLast(estaciones, identificador)
+        for identificador in lt.iterator(estaciones):
+            if identificador[0] == "T":
+                contador_transbordos += 1
+        lt.addLast(estaciones, inicio)
+        distancia, retorno = calculadorDistanciasBfs(analyzer, path)
+        grafoReq2(analyzer, mapa, retorno)
+        mapa.save("C:\\Users\\olive\\OneDrive\\Escritorio\\mapaReq2.html")  
+    return distancia, retorno, estaciones, contador_transbordos
+
+def calculadorDistanciasBfs(analyzer, path):
+    stops = analyzer["stops"]
+    grafo = analyzer["grafo"]
+    lstcoordenadas = []
+    parejaVerticesDistancias = []
+    retorno = lt.newList("SINGLE_LINKED")
+    distancia = 0
+    for identificador in lt.iterator(path):
+        entry = mp.get(stops, identificador)
+        if entry is not None:
+            valor = me.getValue(entry)
+            lon = float(valor["Longitude"])
+            lat = float(valor["Latitude"])
+            coordenadas = (lat, lon)
+            lstcoordenadas.append(coordenadas)
+            parejaVerticesDistancias.append(identificador)
+    for i in range(0, len(lstcoordenadas)-1):
+        identificador1 = parejaVerticesDistancias[i]
+        identificador2 = parejaVerticesDistancias[i+1]
+        dist = hv.haversine(lstcoordenadas[i], lstcoordenadas[i+1])
+        distancia += dist
+        lt.addLast(retorno, (identificador1, identificador2, dist))
+    return distancia, retorno
+
+def grafoReq2(analyzer, mapa, retorno):
+    stops  = analyzer["stops"]
+    for tupla in lt.iterator(retorno):
+        est1, est2, dist = tupla
+        entry1 = mp.get(stops, est1)
+        entry2 = mp.get(stops, est2)
+        if entry1 is not None:
+            valor = me.getValue(entry1)
+            lat1 = float(valor["Latitude"])
+            lon1 = float(valor["Longitude"])
+            marker_cluster = MarkerCluster().add_to(mapa)
+            folium.Marker(location=[lat1, lon1],icon=folium.Icon(color="green", icon="ok-sign"),).add_to(marker_cluster)
+            if entry2 is not None:
+                valor = me.getValue(entry2)
+                lat2 = float(valor["Latitude"])
+                lon2 = float(valor["Longitude"])
+                coordenadas1 = [lat1, lon1]
+                coordenadas2 = [lat2, lon2]
+                folium.PolyLine([coordenadas1, coordenadas2], color="blue", dash_array="5", opacity=".85").add_to(mapa)
+#Req3
+
+def reconocerComponentesConectados(analyzer):
+    grafico = folium.Map(location=[41.3887900, 2.1589900], zoom_start=20)
+    grafo = analyzer["grafo"]
+    sc = scc.KosarajuSCC(grafo)
+    scmarked = sc["marked"]
+    marcas = lt.newList("SINGLE_LINKED")
+    componentes = sc["idscc"]
+    mapa = mp.newMap(maptype="PROBING")
+    for llave in lt.iterator(mp.keySet(componentes)):
+        entry = mp.get(componentes, llave)
+        valor = me.getValue(entry)
+        if lt.isPresent(marcas, valor) == 0:
+            lt.addLast(marcas, valor)
+            lista = lt.newList("SINGLE_LINKED")
+            lt.addLast(lista, llave)
+            mp.put(mapa, valor, lista)
+        else: 
+            entry1 = mp.get(mapa, valor)
+            lst = me.getValue(entry1)
+            lt.addLast(lst, llave)
+    oficial = getCC(mapa)
+    grafoReq3(analyzer, oficial, grafico)
+    grafico.save("C:\\Users\\olive\\OneDrive\\Escritorio\\mapaReq3.html")
+    return oficial, sc["components"]
+
+def getCC(mapa):
+    lista_cc = []
+    lista_size = []
+    retorno = mp.newMap(maptype="PROBING")
+    oficial = mp.newMap(maptype="PROBING")
+    for llave in lt.iterator(mp.keySet(mapa)):
+        lista_cc.append(llave)
+        entry = mp.get(mapa, llave)
+        lst = me.getValue(entry)
+        size = lt.size(lst)
+        lista_size.append(size)
+        mp.put(retorno, size, lst)
+    lista_size = sorted(lista_size, reverse=True)
+    for i in range(0, 5):
+        mp.put(oficial, lista_size[i], me.getValue(mp.get(retorno, lista_size[i])))
+    return oficial
+
+def grafoReq3(analyzer, oficial, grafico):
+    i = 0
+    stops = analyzer["stops"]
+    colors = ["red", "blue", "black", "green", "pink"]
+    coordenadas1 = []
+    for llave in lt.iterator(mp.keySet(oficial)):
+        coordenadas1 = []
+        entry = mp.get(oficial, llave)
+        lista = me.getValue(entry)
+        for estacion in lt.iterator(lista):
+            entryE = mp.get(stops, estacion)
+            if entryE is not None:
+                valorE = me.getValue(entryE)
+                latE = float(valorE["Latitude"])
+                lonE = float(valorE["Longitude"])
+                coordenada = (latE, lonE)
+                coordenadas1.append(coordenada)
+                marker_cluster = MarkerCluster().add_to(grafico)
+                folium.Marker(location=coordenada,icon=folium.Icon(color=colors[i], icon="ok-sign"),).add_to(marker_cluster)
+        i += 1
+
+#Req 4
+
+def estacionMasCercana(analyzer, coordenadasIniciales, coordenadasFinales):
+    stops = analyzer["stops"]
+    coorI = coordenadasIniciales.split(",")
+    coorF = coordenadasFinales.split(",")
+    lonI = float(coorI[0].strip())
+    latI = float(coorI[1].strip())
+    lonF = float(coorF[0].strip())
+    latF = float(coorF[1].strip())
+    valorReferenciaI = 100000000000000000000000000000
+    valorReferenciaF = 100000000000000000000000000000
+    for llave in lt.iterator(mp.keySet(stops)):
+        entry = mp.get(stops, llave)
+        valor = me.getValue(entry)
+        lon = float(valor["Longitude"])
+        lat = float(valor["Latitude"])
+        coor = (lat, lon)
+        distanciaI = hv.haversine((latI, lonI),coor)
+        if distanciaI < valorReferenciaI:
+            valorReferenciaI = distanciaI
+            estacionI = llave
+        distanciaF = hv.haversine((latF, lonF), coor)
+        if distanciaF < valorReferenciaF:
+            valorReferenciaF = distanciaF
+            estacionF = llave
+    return estacionI, estacionF, valorReferenciaI, valorReferenciaF
+
+def recorridoReq4(analyzer, coordenadasIniciales, coordenandasFinales):
+    grafico = folium.Map(location=[41.3887900, 2.1589900], zoom_start=10)
+    mapa = analyzer["stops"]
+    grafo = analyzer["grafo"]
+    estaciones = lt.newList("SINGLE_LINKED")
+    transbordos = 0
+    estacionI, estacionF, distI, distF = estacionMasCercana(analyzer, coordenadasIniciales, coordenandasFinales)
+    search = dj.Dijkstra(grafo, estacionI)
+    existpath = dj.hasPathTo(search, estacionF)
+    if existpath:
+        path = dj.pathTo(search, estacionF)
+        distancia = dj.distTo(search, estacionF)
+        for vertice in lt.iterator(path):
+            vertexA = vertice["vertexA"]
+            vertexB = vertice["vertexB"]
+            if vertexA[0] == "T":
+                transbordos += 1
+            if vertexB[0] == "T":
+                transbordos += 1
+            entry = mp.get(mapa, vertexA)
+            if entry is not None:
+                codigo = me.getValue(entry)["Code"]
+                if lt.isPresent(estaciones, codigo) == 0:
+                    lt.addLast(estaciones, codigo)
+            entry = mp.get(mapa, vertexB)
+            if entry is not None:
+                codigo = me.getValue(entry)["Code"]
+                if lt.isPresent(estaciones, codigo) == 0:
+                    lt.addLast(estaciones, codigo)
+    grafoReq4(analyzer, grafico, path) 
+    grafico.save("C:\\Users\\olive\\OneDrive\\Escritorio\\mapaReq4.html")
+    return path, estacionI, estacionF, distI, distF, distancia, lt.size(estaciones), transbordos/2
+
+def grafoReq4(analyzer,grafico, path):
+    stops = analyzer["stops"]
+    for dict in lt.iterator(path):
+        verticeA = dict["vertexA"]
+        verticeB = dict["vertexB"]
+        entryA = mp.get(stops, verticeA)
+        entryB = mp.get(stops, verticeB)
+        if entryA is not None:
+            valorA = me.getValue(entryA)
+            coordenadaA = [float(valorA["Latitude"]), float(valorA["Longitude"])]
+            marker_cluster = MarkerCluster().add_to(grafico)
+            folium.Marker(location=coordenadaA,icon=folium.Icon(color="blue",prefix="fa", icon="bus"),).add_to(marker_cluster)
+            if entryB is not None:
+                valorB = me.getValue(entryB)
+                coordenadaB = [float(valorB["Latitude"]), float(valorB["Longitude"])]
+                folium.PolyLine([coordenadaA, coordenadaB], color="blue", dash_array="5", opacity=".85").add_to(grafico)
+
+
+#Req 5
+
+def estacionesAlcanzables(analyzer,estacionInicial, cota):
+    grafico = folium.Map(location=[41.3887900, 2.1589900], zoom_start=10)
+    grafo = analyzer["grafo"]
+    stops = analyzer["stops"]
+    Pestaciones = lt.newList("SINGLE_LINKED")
+    estaciones = lt.newList("SINGLE_LINKED")
+    lt.addLast(estaciones, estacionInicial)
+    if int(cota) != 0:
+        primeraOla = gr.adjacents(grafo, estacionInicial)
+        lt.addLast(Pestaciones, primeraOla)
+        for cada_vertice in lt.iterator(primeraOla):
+            lt.addLast(estaciones, cada_vertice)
+    for i in range(int(cota)-1):
+        lst = lt.newList("SINGLE_LINKED")
+        for vertice in lt.iterator(primeraOla):
+            ola = gr.adjacents(grafo, vertice)
+            lt.addLast(lst, ola)
+            for vertice in lt.iterator(ola):
+                if lt.isPresent(estaciones, vertice) == 0:
+                    lt.addLast(estaciones, vertice)
+        lt.addLast(Pestaciones, lst)
+    distancias, coordenadasI = distanciasReq5(stops, estaciones, estacionInicial)
+    grafoReq5(analyzer, distancias, grafico, coordenadasI)
+    grafico.save("C:\\Users\\olive\\OneDrive\\Escritorio\\mapaReq5.html")
+    return estaciones, lt.size(estaciones), distancias
+
+def distanciasReq5(stops, estaciones, estacionInicial):
+    distancias = lt.newList("SINGLE_LINKED")
+    entryI = mp.get(stops, estacionInicial)
+    centinela = True
+    if entryI is not None:
+        valorI = me.getValue(entryI)
+        coordenadasI = (float(valorI["Latitude"]), float(valorI["Longitude"]))
     else:
-        details['lowest'] = None
-        details['highest'] = None
-
-def determinateItem(register, feature):
-    item = None
-    if (feature == 'Best Time') and (register['Time_0'] != ''):
-        item = float(register['Time_0'])
-    elif (feature == 'Second Best Time') and (register['Time_1'] != ''):
-        item = float(register['Time_1'])
-    elif (feature == 'Third Best Time') and (register['Time_2'] != ''):
-        item = float(register['Time_2'])
-    elif (feature == 'Average Time'):
-        times = [float(register['Time_0'])]
-        if register['Time_1'] != '':
-            times.append(float(register['Time_1']))
-        if register['Time_2'] != '':
-            times.append(float(register['Time_2']))
-        item = round(mean(times), 2)
-    elif (feature == 'Number Runs') and (register['Num_Runs'] != ''):
-        item = int(register['Num_Runs'])
-    return item
-
-def calculateRevenue(register):
-    if register['Misc'] == 'False':
-        rYear = datetime.strptime(register['Release_Date'], "%Y-%m-%d").year
-        if rYear >= 2018:
-            antiquity = rYear - 2017
-        elif (rYear >= 1998) and (rYear < 2018):
-            antiquity = (-(1/5) * rYear) + 404.6
+        codigo = estacionInicial[2:]+"-"
+        while centinela:
+            for llave in lt.iterator(mp.keySet(stops)):
+                if (codigo[0] == llave[0]) and (codigo in llave):
+                    entryI = mp.get(stops, llave)
+                    valorI = me.getValue(entryI)
+                    coordenadasI = (float(valorI["Latitude"]), float(valorI["Longitude"]))
+                    centinela = False
+    for cada_estacion in lt.iterator(estaciones):
+        entry = mp.get(stops, cada_estacion)
+        if entry is not None:
+            valor = me.getValue(entry)
+            coordenadas = (float(valor["Latitude"]), float(valor["Longitude"]))
+            dist = hv.haversine(coordenadasI, coordenadas)
+            lt.addLast(distancias, (cada_estacion, dist, coordenadas))
         else:
-            antiquity = 5
-        popularity = math.log(int(register['Total_Runs']))
-        times = [float(register['Time_0'])]
-        if register['Time_1'] != '':
-            times.append(float(register['Time_1']))
-        if register['Time_2'] != '':
-            times.append(float(register['Time_2']))
-        timeAvg = mean(times)
-        revenue = (popularity * (timeAvg / 60)) / antiquity
-        register['Time_Avg'] = timeAvg
-        register['revenue'] = revenue
+            coordenadas = "-"
+            dist = "-"
+            lt.addLast(distancias, (cada_estacion, dist, coordenadas))
+    return distancias, coordenadasI
+
+def grafoReq5(analyzer, distancias, grafico, coordenadasI):
+    stops = analyzer["stops"]
+    coordenadas = []
+    marker_cluster = MarkerCluster().add_to(grafico)
+    folium.Marker(location=coordenadasI,icon=folium.Icon(color="blue",prefix="fa", icon="bus"),).add_to(marker_cluster)
+    for tupla in lt.iterator(distancias):
+        est, dist, coord = tupla
+        if coord != "-":
+            marker_cluster = MarkerCluster().add_to(grafico)
+            folium.Marker(location=coord,icon=folium.Icon(color="blue",prefix="fa", icon="bus"),).add_to(marker_cluster)
+            folium.PolyLine([coordenadasI, coord], color="blue", dash_array="5", opacity=".85").add_to(grafico)
+
+#Req 6
+
+def caminoEstacionVecindario(analyzer, estacionInicial, vecindario):
+    grafico = folium.Map(location=[41.3887900, 2.1589900], zoom_start=20)
+    grafo = analyzer["grafo"]
+    stops = analyzer["stops"]
+    distancia = 100000000000000000000000000000000
+    caminos = lt.newList("SINGLE_LINKED")
+    search = dj.Dijkstra(grafo, estacionInicial)
+    for llave in lt.iterator(mp.keySet(stops)):
+        entry = mp.get(stops, llave)
+        valor = me.getValue(entry)
+        barrio = valor["Neighborhood_Name"]
+        if barrio.strip() == vecindario.strip():
+            existpath = dj.hasPathTo(search, llave)
+            if existpath:
+                path = dj.pathTo(search, llave)
+                dist = dj.distTo(search, llave)
+                if dist < distancia:
+                    distancia = dist
+                    lt.addLast(caminos, path)
+    camino = barrios(stops, lt.lastElement(caminos))
+    contadores = totalEstacionesYTransbordos(stops, lt.lastElement(caminos))
+    grafoReq6(analyzer, grafico, camino)
+    grafico.save("C:\\Users\\olive\\OneDrive\\Escritorio\\mapaReq6.html")
+    return camino, distancia, contadores
+
+def barrios(stops, path):
+    retorno = lt.newList("SINGLE_LINKED")
+    for dict in lt.iterator(path):
+        dicAuxiliar = {"vertexA":None, "vertexB":None, "weight":None, "barrioA":None, "barrioB":None}
+        verticeA = dict["vertexA"]
+        verticeB = dict["vertexB"]
+        dist = dict["weight"]
+        dicAuxiliar["vertexA"] = verticeA
+        dicAuxiliar["vertexB"] = verticeB
+        dicAuxiliar["weight"] = dist
+        entryA= mp.get(stops, verticeA)
+        if entryA is not None:
+            barrioA = me.getValue(entryA)["Neighborhood_Name"]
+        else:
+            barrioA = "-"
+        entryB = mp.get(stops, verticeB)
+        if entryB is not None:
+            barrioB = me.getValue(entryB)["Neighborhood_Name"]
+        else:
+            barrioB = "-"
+        dicAuxiliar["barrioA"] = barrioA
+        dicAuxiliar["barrioB"] = barrioB
+        lt.addLast(retorno, dicAuxiliar)
+    return retorno
+
+def totalEstacionesYTransbordos(stops, path):
+    contadorEstaciones = 0
+    contadorTransbordos = 0
+    codigosEstaciones = lt.newList("SINGLE_LINKED")
+    for dict in lt.iterator(path):
+        verticeA = dict["vertexA"]
+        verticeB = dict["vertexB"]
+        entryA = mp.get(stops, verticeA)
+        entryB = mp.get(stops, verticeB)
+        if entryA is not None:
+            valorA = me.getValue(entryA)
+            if lt.isPresent(codigosEstaciones, valorA["Code"]) == 0:
+                lt.addLast(codigosEstaciones, valorA["Code"])
+                contadorEstaciones += 1
+        else:
+            contadorTransbordos += 1
+        if entryB is not None:
+            valorB = me.getValue(entryB)
+            if lt.isPresent(codigosEstaciones, valorB["Code"]) == 0:
+                lt.addLast(codigosEstaciones, valorB["Code"])
+                contadorEstaciones += 1
+        else:
+            contadorTransbordos += 1
+    return contadorEstaciones, contadorTransbordos/2
+
+def grafoReq6(analyzer, grafico, path):
+    stops = analyzer["stops"]
+    for dict in lt.iterator(path):
+        verticeA = dict["vertexA"]
+        verticeB = dict["vertexB"]
+        entryA = mp.get(stops, verticeA)
+        entryB = mp.get(stops, verticeB)
+        if entryA is not None:
+            valorA = me.getValue(entryA)
+            coordenadaA = [float(valorA["Latitude"]), float(valorA["Longitude"])]
+            marker_cluster = MarkerCluster().add_to(grafico)
+            folium.Marker(location=coordenadaA,icon=folium.Icon(color="blue",prefix="fa", icon="bus"),).add_to(marker_cluster)
+            if entryB is not None:
+                valorB = me.getValue(entryB)
+                coordenadaB = [float(valorB["Latitude"]), float(valorB["Longitude"])]
+                folium.PolyLine([coordenadaA, coordenadaB], color="blue", dash_array="5", opacity=".85").add_to(grafico)
+
+#Req 7
+
+def pathFinal(analyzer, verticeF, estI):
+    mapa = analyzer["stops"]
+    grafo = analyzer["grafo"]
+    searchF = dfs.DepthFirstSearch(grafo, verticeF)
+    llaves = mp.keySet(searchF["visited"])
+    if lt.isPresent(llaves,estI) != 0:
+        return searchF
     else:
-        register = None
-    return register
+        pathFinal(analyzer, verticeF, estI)
 
-def loadCoordinates():
-    coordinates = {}
-    contentFile = cf.data_dir + 'Coordinates//Coordinates.csv'
-    inputFile = csv.DictReader(open(contentFile, encoding="utf-8"), delimiter=",")
-    for country in inputFile:
-        coordinates[country['Country']] = country
-    return coordinates
+def rutaCircular(analyzer, estacionInicial):
+    grafico = folium.Map(location=[41.3887900, 2.1589900], zoom_start=15)
+    stops = analyzer["stops"]
+    grafo = analyzer["grafo"]
+    searchI = dfs.DepthFirstSearch(grafo, estacionInicial)
+    verticeF = lt.getElement(mp.keySet(searchI["visited"]), 3)
+    pathI = dfs.pathTo(searchI, verticeF)
+    searchF = pathFinal(analyzer, verticeF, estacionInicial)
+    pathF = dfs.pathTo(searchF, estacionInicial)
+    cantidades = estacionYTransbordos(analyzer, pathI, pathF)
+    coordenadasI = (float(me.getValue(mp.get(stops, estacionInicial))["Latitude"]), float(me.getValue(mp.get(stops, estacionInicial))["Longitude"]))
+    idVerticeF = verticeF[2:]+"-"
+    if verticeF[0] == "T":
+        for llave in lt.iterator(mp.keySet(stops)):
+            if (llave[0] == verticeF[2]) and (idVerticeF in llave):
+                verticeF = llave
+    coordenadasF = (float(me.getValue(mp.get(stops, verticeF))["Latitude"]), float(me.getValue(mp.get(stops, verticeF))["Longitude"]))
+    distancias = distanciasReq7(stops, pathI, pathF)
+    grafoReq7(analyzer, distancias, grafico)
+    marker_cluster = MarkerCluster().add_to(grafico)
+    folium.Marker(location=coordenadasI,icon=folium.Icon(color="red",prefix="fa", icon="bus"), popup=estacionInicial).add_to(marker_cluster)
+    grafico.save("C:\\Users\\olive\\OneDrive\\Escritorio\\mapaReq7.html")
+    return pathI, pathF, cantidades, distancias
 
-def getGame(analyzer, gameId):
-    game = mp.get(analyzer['idVideoGames'], gameId)
-    game = me.getValue(game)
-    game['Stream_Revenue'] = 0
-    game['Time_Avg'] = []
-    return game
+def estacionYTransbordos(analyzer, pathI, pathF):
+    estaciones = lt.newList()
+    transbordos = 0
+    stops = analyzer["stops"]
+    for estacionI in lt.iterator(pathI):
+        entryI = mp.get(stops, estacionI)
+        if entryI is not None:
+            valor = me.getValue(entryI)
+            codigo = valor["Code"]
+            if lt.isPresent(estaciones, codigo) == 0:
+                lt.addLast(estaciones, codigo)
+        else:
+            transbordos += 1
+    for estacionF in lt.iterator(pathF):
+        entryF = mp.get(stops, estacionF)
+        if entryF is not None:
+            valor = me.getValue(entryF)
+            codigo = valor["Code"]
+            if lt.isPresent(estaciones, codigo) == 0:
+                lt.addLast(estaciones, codigo)
+        else:
+            transbordos += 1
+    return lt.size(estaciones), transbordos/2
+
+def distanciasReq7(stops, pathI, pathF):
+    distancia = 0
+    distanciasI = lt.newList()
+    distanciasF = lt.newList()
+    sizeI = lt.size(pathI)
+    sizeF = lt.size(pathF)
+    centinelaIA = True
+    centinelaIB = True
+    centinelaFA = True
+    centinelaFB = True
+    for i in range(sizeI):
+        verticeA = lt.getElement(pathI, i)
+        verticeB = lt.getElement(pathI, i+1)
+        idA = verticeA[2:]
+        idB = verticeB[2:]
+        entryA = mp.get(stops, verticeA)
+        entryB = mp.get(stops, verticeB)
+        if entryA is not None:
+            valorA = me.getValue(entryA)
+            coordenadasA = (float(valorA["Latitude"]), float(valorA["Longitude"]))
+        else:
+            while centinelaIA:
+                for llave in lt.iterator(mp.keySet(stops)):
+                    i = mp.get(stops, llave)
+                    codigo = me.getValue(i)["Code"]
+                    if codigo == idA:
+                        centinelaIA = False
+                        coordenadasA = (float(me.getValue(i)["Latitude"]), float(me.getValue(i)["Longitude"]))
+        if entryB is not None:
+            valorB = me.getValue(entryB)
+            coordenadasB = (float(valorB["Latitude"]), float(valorB["Longitude"]))
+        else: 
+            while centinelaIB:
+                for llave in lt.iterator(mp.keySet(stops)):
+                    i = mp.get(stops, llave)
+                    codigo = me.getValue(i)["Code"]
+                    if codigo == idB:
+                        centinelaIB = False
+                        coordenadasB = (float(me.getValue(i)["Latitude"]), float(me.getValue(i)["Longitude"]))
+        dist = hv.haversine(coordenadasA, coordenadasB)
+        lt.addLast(distanciasI, (verticeA, verticeB, dist))
+        distancia += dist
+    for i in range(sizeF):
+        verticeA = lt.getElement(pathF, i)
+        verticeB = lt.getElement(pathF, i+1)
+        idA = verticeA[2:]
+        idB = verticeB[2:]
+        entryA = mp.get(stops, verticeA)
+        entryB = mp.get(stops, verticeB)
+        if entryA is not None:
+            valorA = me.getValue(entryA)
+            coordenadasA = (float(valorA["Latitude"]), float(valorA["Longitude"]))
+        else:
+            while centinelaFA:
+                for llave in lt.iterator(mp.keySet(stops)):
+                    i = mp.get(stops, llave)
+                    codigo = me.getValue(i)["Code"]
+                    if codigo == idA:
+                        centinelaFA = False
+                        coordenadasA = (float(me.getValue(i)["Latitude"]), float(me.getValue(i)["Longitude"]))
+        if entryB is not None:
+            valorB = me.getValue(entryB)
+            coordenadasB = (float(valorB["Latitude"]), float(valorB["Longitude"]))
+        else: 
+            while centinelaFB:
+                for llave in lt.iterator(mp.keySet(stops)):
+                    i = mp.get(stops, llave)
+                    codigo = me.getValue(i)["Code"]
+                    if codigo == idB:
+                        centinelaFB = False
+                        coordenadasB = (float(me.getValue(i)["Latitude"]), float(me.getValue(i)["Longitude"]))
+        dist = hv.haversine(coordenadasA, coordenadasB)
+        lt.addLast(distanciasF, (verticeA, verticeB, dist))
+        distancia += dist
+    return distanciasI, distanciasF, distancia
+
+def grafoReq7(analyzer, distancias, grafico):
+    stops = analyzer["stops"]
+    distI, distF, dist = distancias
+    for tupla in lt.iterator(distI):
+        verticeA, verticeB, distancia = tupla
+        entryA = mp.get(stops, verticeA)
+        entryB = mp.get(stops, verticeB)
+        if entryA is not None:
+            valorA = me.getValue(entryA)
+            coordenadaA = [float(valorA["Latitude"]), float(valorA["Longitude"])]
+            marker_cluster = MarkerCluster().add_to(grafico)
+            folium.Marker(location=coordenadaA,icon=folium.Icon(color="blue",prefix="fa", icon="bus"),).add_to(marker_cluster)
+            if entryB is not None:
+                valorB = me.getValue(entryB)
+                coordenadaB = [float(valorB["Latitude"]), float(valorB["Longitude"])]
+                folium.PolyLine([coordenadaA, coordenadaB], color="blue", dash_array="5", opacity=".85").add_to(grafico)
+    for tupla in lt.iterator(distF):
+        verticeA, verticeB, distancia = tupla
+        entryA = mp.get(stops, verticeA)
+        entryB = mp.get(stops, verticeB)
+        if entryA is not None:
+            valorA = me.getValue(entryA)
+            coordenadaA = [float(valorA["Latitude"]), float(valorA["Longitude"])]
+            marker_cluster = MarkerCluster().add_to(grafico)
+            folium.Marker(location=coordenadaA,icon=folium.Icon(color="blue",prefix="fa", icon="bus"),).add_to(marker_cluster)
+            if entryB is not None:
+                valorB = me.getValue(entryB)
+                coordenadaB = [float(valorB["Latitude"]), float(valorB["Longitude"])]
+                folium.PolyLine([coordenadaA, coordenadaB], color="purple", dash_array="5", opacity=".85").add_to(grafico)
 
 # Funciones utilizadas para comparar elementos dentro de una lista
-def compareReq1(register1, register2):
-    if register1['Release_Date'] == register2['Release_Date']:
-        if register1['Abbreviation'] == register2['Abbreviation']:
-            return compareName(register1, register2)
-        else:
-            return compareAbbreviation(register1, register2)
-    else:
-        return compareReleaseDate(register1, register2)
-
-def compareReq2(register1, register2):
-    if register1['Time_0'] == register2['Time_0']:
-        if register1['Record_Date_0'] == register2['Record_Date_0']:
-            return compareName(register1, register2)
-        else:
-            return compareBestRecordDate(register1, register2)
-    else:
-        return compareBestTime(register1, register2)
-
-def compareReq3(register1, register2):
-    if register1['Time_0'] == register2['Time_0']:
-        if register1['Record_Date_0'] == register2['Record_Date_0']:
-            return compareName(register1, register2)
-        else:
-            return compareBestRecordDate(register1, register2)
-    else:
-        return not compareBestTime(register1, register2)
-
-def compareReq4(register1, register2):
-    if register1['Time_0'] == register2['Time_0']:
-        if register1['Num_Runs'] == register2['Num_Runs']:
-            return compareName(register1, register2)
-        else:
-            return compareNumRums(register1, register2)
-    else:
-        return compareBestTime(register1, register2)
-
-def compareName(register1, register2):
-    return (register1['Name'] < register2['Name'])
-
-def compareAbbreviation(register1, register2):
-    return (register1['Abbreviation'] < register2['Abbreviation'])
-
-def compareReleaseDate(register1, register2):
-    date1 = datetime.strptime(register1['Release_Date'], '%Y-%m-%d')
-    date2 = datetime.strptime(register2['Release_Date'], '%Y-%m-%d')
-    return (date1 > date2)
-
-def compareBestTime(register1, register2):
-    return (float(register1['Time_0']) < float(register2['Time_0']))
-
-def compareBestRecordDate(register1, register2):
-    if (type(register1['Record_Date_0']) != str) and (type(register2['Record_Date_0']) != str):
-        return (register1['Record_Date_0'] > register2['Record_Date_0'])
-
-def compareNumRums(register1, register2):
-    return (int(register1['Num_Runs']) < int(register2['Num_Runs']))
-
-def compareRevenue(register1, register2):
-    return (float(register1['Stream_Revenue']) > float(register2['Stream_Revenue']))
-
-def compareCounts(register1, register2):
-    return (int(register1['Count']) > int(register2['Count']))
-
-def compareTimes(time1, time2):
-    """
-    Compara dos tiempos
-    """
-    time1 = float(time1)
-    time2 = float(time2)
-    if (time1 == time2):
-        return 0
-    elif (time1 > time2):
-        return 1
-    else:
-        return -1
 
 # Funciones de ordenamiento
-def firstAndLastThreeData(lista):
-    filteredData = lt.newList()
-    size = lt.size(lista)
-    if size >= 1:
-        if size <= 5:
-            filteredData = lista
-        else:
-            for pos in range(1, 4):
-                data = lt.getElement(lista, pos)
-                lt.addLast(filteredData, data)
-            for pos in range(size-2, size+1):
-                data = lt.getElement(lista, pos)
-                lt.addLast(filteredData, data)
-    return filteredData
-
-def sortRegisters(lista, compareReq):
-    return sa.sort(lista, compareReq)
